@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "domeutils"
+version = "0.1"
+authors = [
+  { name="Christian Benz", email="christian.benz@uni-weimar.de" },
+  { name="Lucky Chandrautama", email="lucky.chandrautama@uni-weimar.de" },
+]
+description = "Python script using the Metashape API for photo dome 3D reconstruction."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "open3d",
+    "opencv-python",
+]

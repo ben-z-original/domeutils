@@ -75,22 +75,26 @@ def crop_model(doc, transform):
 
     # crop to head
     max_z = np.infty  # np.array([chunk.transform.matrix * pt.coord for pt in chunk.point_cloud.points if pt.valid]).max(axis=0)[2]
-    min_z = 0.3  # max_z - 0.5
+    min_z = 0.2  # max_z - 0.5
 
     for pt in chunk.point_cloud.points:
         coord_z = np.array(chunk.transform.matrix * pt.coord)[2]
         if coord_z < min_z or max_z < coord_z:
             pt.valid = False
 
+    chunk.resetRegion()
     return doc
 
 
 def build_textured_mesh(chunk, export_path=None, doc_path=None):
     """Builds textured mesh for Agisoft Metashape project."""
     # build mesh and texture
+    chunk.buildDepthMaps(downscale=2, filter_mode=Metashape.AggressiveFiltering)
+    chunk.buildDenseCloud()
     chunk.buildModel(surface_type=Metashape.Arbitrary, interpolation=Metashape.EnabledInterpolation,
+                     source_data=Metashape.DenseCloud)
                      #source_data=Metashape.DepthMapsData)
-                     source_data=Metashape.PointCloudData)
+                     #source_data=Metashape.PointCloudData)
     chunk.buildUV(mapping_mode=Metashape.GenericMapping)
     chunk.buildTexture(blending_mode=Metashape.MosaicBlending, texture_size=4096)
 
@@ -147,7 +151,7 @@ def export_agisoft_model(chunk, export_path, name):
 
     for texture in model.textures:
         h, w, c = texture.image().height, texture.image().width, texture.image().cn
-        img = np.fromstring(texture.image().tostring(), dtype=np.uint8)
+        img = np.frombuffer(texture.image().tostring(), dtype=np.uint8)
         img = img.reshape(h, w, c)
 
         img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGRA)
@@ -182,6 +186,7 @@ if __name__ == "__main__":
     doc = build_textured_mesh(chunk=doc.chunk)
     if args.logging_on:
         doc.save(str(export_path / "metashape3.psx"))
+        doc.chunk.exportCameras(str(export_path / "cameras.xml"))
 
     # export textured mesh
     export_agisoft_model(chunk=doc.chunk, export_path=export_path, name="model_export")

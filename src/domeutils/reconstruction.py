@@ -161,7 +161,6 @@ def export_agisoft_model(chunk, export_path, name):
 
 
 def export_cameras_agisoft(chunk, out_path):
-    # TODO: export all sensors!
     """Exports the cameras from an agisoft chunk into the agisoft xml format."""
     doc = ET.Element("document")
     chun = ET.SubElement(doc, "chunk")

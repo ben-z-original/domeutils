@@ -6,7 +6,8 @@ import numpy as np
 import open3d as o3d
 from glob import glob
 from pathlib import Path
-
+from xml.dom import minidom
+from xml.etree import ElementTree as ET
 
 def sfm_metashape(img_paths, doc_path=None):
     """Structure-from-motion pipeline performed with Agisoft Metashape."""
@@ -24,13 +25,13 @@ def sfm_metashape(img_paths, doc_path=None):
     return doc
 
 
-def register_cameras(chunk, true_camera_centers_path="assets/true_camera_centers.pkl"):
+def register_cameras(doc, true_camera_centers_path="assets/true_camera_centers.pkl"):
     """Register reconstructed cameras to true camera centers."""
     # prepare true and reconstructed camera centers
     with open(true_camera_centers_path, "br") as f:
         true_camera_centers = pickle.load(f)
     reco_camera_centers = dict(("-".join(cam.label.replace("_", "-").split("-")[1:4]), np.array(cam.center))
-                               for cam in chunk.cameras if cam.center is not None)
+                               for cam in doc.chunk.cameras if cam.center is not None)
     true_camera_centers = {"-".join(key.split("-")[1:4]): true_camera_centers[key] for key in
                            true_camera_centers.keys()}
 
@@ -51,9 +52,9 @@ def register_cameras(chunk, true_camera_centers_path="assets/true_camera_centers
 
     # apply transformation
     transform = Metashape.Matrix(transform)
-    chunk.transform.matrix = transform * chunk.transform.matrix
+    doc.chunk.transform.matrix = transform * doc.chunk.transform.matrix
 
-    return transform
+    return doc, transform
 
 
 def crop_model(doc, transform):
@@ -91,10 +92,10 @@ def build_textured_mesh(doc, export_path=None, doc_path=None):
     chunk = doc.chunk
     # build mesh and texture
     chunk.buildDepthMaps(downscale=2, filter_mode=Metashape.AggressiveFiltering)
-    chunk.buildDenseCloud()
+    # chunk.buildDenseCloud()
     chunk.buildModel(surface_type=Metashape.Arbitrary, interpolation=Metashape.EnabledInterpolation,
-                     source_data=Metashape.DenseCloud)
-    # source_data=Metashape.DepthMapsData)
+                     # source_data=Metashape.DenseCloud)
+                     source_data=Metashape.DepthMapsData)
     # source_data=Metashape.PointCloudData)
     chunk.buildUV(mapping_mode=Metashape.GenericMapping)
     chunk.buildTexture(blending_mode=Metashape.MosaicBlending, texture_size=4096)
@@ -159,6 +160,114 @@ def export_agisoft_model(chunk, export_path, name):
         cv2.imwrite(str((export_path / name).with_suffix(".jpg")), img)
 
 
+def export_cameras_agisoft(chunk, out_path):
+    # TODO: export all sensors!
+    """Exports the cameras from an agisoft chunk into the agisoft xml format."""
+    doc = ET.Element("document")
+    chun = ET.SubElement(doc, "chunk")
+    sensors = ET.SubElement(chun, "sensors")
+    cameras = ET.SubElement(chun, "cameras")
+    if chunk.transform.rotation is not None:
+        transform = ET.SubElement(chun, "transform")
+    reference = ET.SubElement(chun, "reference")
+    # TODO
+    region = ET.SubElement(chun, "region")
+    settings = ET.SubElement(chun, "settings")
+    meta = ET.SubElement(chun, "meta")
+
+    chun.attrib["label"] = chunk.label
+    chun.attrib["enabled"] = str(chunk.enabled)
+
+    sensors.attrib["next_id"] = str(len(chunk.sensors))
+
+    for id in range(len(chunk.sensors)):
+        sensor = ET.SubElement(sensors, "sensor")
+        resolution = ET.SubElement(sensor, "resolution")
+        property1 = ET.SubElement(sensor, "property")
+        property2 = ET.SubElement(sensor, "property")
+        property3 = ET.SubElement(sensor, "property")
+        property4 = ET.SubElement(sensor, "property")
+        bands = ET.SubElement(sensor, "bands")
+        data_type = ET.SubElement(sensor, "data_type")
+        calibration = ET.SubElement(sensor, "calibration")
+        calib_resolution = ET.SubElement(calibration, "resolution")
+        f = ET.SubElement(calibration, "f")
+        cx = ET.SubElement(calibration, "cx")
+        cy = ET.SubElement(calibration, "cy")
+        k1 = ET.SubElement(calibration, "k1")
+        k2 = ET.SubElement(calibration, "k2")
+        k3 = ET.SubElement(calibration, "k3")
+        p1 = ET.SubElement(calibration, "p1")
+        p2 = ET.SubElement(calibration, "p2")
+        covariance = ET.SubElement(sensor, "covariance")
+
+        sensor.attrib["id"] = str(id)
+        sensor.attrib["label"] = chunk.sensors[id].label
+        sensor.attrib["type"] = "frame"
+
+        resolution.attrib["width"] = str(chunk.sensors[id].width)
+        resolution.attrib["height"] = str(chunk.sensors[id].height)
+        property1.attrib["name"] = "pixel_width"
+        property1.attrib["value"] = str(chunk.sensors[id].pixel_width)
+        property2.attrib["name"] = "pixel_height"
+        property2.attrib["value"] = str(chunk.sensors[id].pixel_height)
+        property3.attrib["name"] = "focal_length"
+        property3.attrib["value"] = str(chunk.sensors[id].focal_length)
+        property4.attrib["name"] = "layer_index"
+        property4.attrib["value"] = str(chunk.sensors[id].layer_index)
+        data_type.text = "uint8"
+        for elem in chunk.sensors[id].bands:
+            band = ET.SubElement(bands, "band")
+            band.attrib["label"] = elem
+        calib_resolution.attrib["width"] = str(chunk.sensors[id].width)
+        calib_resolution.attrib["height"] = str(chunk.sensors[id].height)
+        f.text = str(chunk.sensors[id].calibration.f)
+        cx.text = str(chunk.sensors[id].calibration.cx)
+        cy.text = str(chunk.sensors[id].calibration.cy)
+        k1.text = str(chunk.sensors[id].calibration.k1)
+        k2.text = str(chunk.sensors[id].calibration.k2)
+        k3.text = str(chunk.sensors[id].calibration.k3)
+        p1.text = str(chunk.sensors[id].calibration.p1)
+        p2.text = str(chunk.sensors[id].calibration.p2)
+        params = ET.SubElement(covariance, "params")
+        params.text = "f cx cy k1 k2 k3 p1 p2"
+        ET.SubElement(covariance, "coeffs").text = np.array2string(np.array(
+            chunk.sensors[id].calibration.covariance_matrix), max_line_width=np.inf)[1:-1]
+
+    cameras.attrib["next_id"] = str(len(chunk.cameras))
+    cameras.attrib["next_group_id"] = "0"
+
+    for i, camera in enumerate(chunk.cameras):
+        cam = ET.SubElement(cameras, "camera")
+        cam.attrib["id"] = str(i)
+        cam.attrib["sensor_id"] = str(chunk.sensors.index(camera.sensor))
+        cam.attrib["label"] = camera.label
+        if camera.transform is not None:
+            cam_trans = ET.SubElement(cam, "transform")
+            cam_trans.text = np.array2string(np.array(camera.transform).flatten(), max_line_width=np.inf, precision=50)[
+                             1:-1]
+
+    if chunk.transform.rotation is not None:
+        trans_rot = ET.SubElement(transform, "rotation")
+        trans_rot.attrib["locked"] = "true"
+        trans_rot.text = np.array2string(np.array(chunk.transform.rotation).flatten())[1:-1]
+        trans_tra = ET.SubElement(transform, "translation")
+        trans_tra.attrib["locked"] = "true"
+        trans_tra.text = np.array2string(np.array(chunk.transform.translation).flatten())[1:-1]
+        trans_sca = ET.SubElement(transform, "scale")
+        trans_sca.attrib["locked"] = "true"
+        trans_sca.text = np.array2string(np.array(chunk.transform.scale).flatten())[1:-1]
+
+    reference.text = "LOCAL_CS['Local Coordinates (m)',LOCAL_DATUM['Local Datum',0]," \
+                     "UNIT['metre',1,AUTHORITY['EPSG','9001']]]"
+
+    xml = minidom.parseString(ET.tostring(doc)).toprettyxml(indent="   ")
+    print(xml)
+
+    with open(out_path, 'w') as f:
+        f.write(xml)
+
+
 def run_pipeline(root):
     img_paths = root / "images"
     export_path = root / "model"
@@ -169,7 +278,7 @@ def run_pipeline(root):
         doc.save(str(export_path / "metashape1.psx"))
 
     # register and crop
-    transform = register_cameras(chunk=doc.chunk)
+    doc, transform = register_cameras(doc=doc)
     doc = crop_model(doc, transform)
     if args.logging_on:
         doc.save(str(export_path / "metashape2.psx"))
@@ -178,10 +287,13 @@ def run_pipeline(root):
     doc = build_textured_mesh(doc=doc)
     if args.logging_on:
         doc.save(str(export_path / "metashape3.psx"))
-        doc.chunk.exportCameras(str(export_path / "cameras.xml"))
+        doc.chunk.exportCameras(str(export_path / "cameras_metashape.xml"))
 
     # export textured mesh
     export_agisoft_model(chunk=doc.chunk, export_path=export_path, name="model_export")
+    export_cameras_agisoft(chunk=doc.chunk, out_path=export_path / "cameras.xml")
+
+    return doc
 
 
 if __name__ == "__main__":
@@ -194,4 +306,4 @@ if __name__ == "__main__":
 
     root = Path(args.root_dir)
 
-    run_pipeline(root)
+    doc = run_pipeline(root)

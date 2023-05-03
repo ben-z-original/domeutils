@@ -262,7 +262,7 @@ def export_cameras_agisoft(chunk, out_path):
                      "UNIT['metre',1,AUTHORITY['EPSG','9001']]]"
 
     xml = minidom.parseString(ET.tostring(doc)).toprettyxml(indent="   ")
-    print(xml)
+    #print(xml)
 
     with open(out_path, 'w') as f:
         f.write(xml)

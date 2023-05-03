@@ -13,7 +13,7 @@ from pkg_resources import resource_string, resource_listdir
 def compute_landmarks(root_dir):
     """Computes the 2D and 3D facial landmarks."""
     detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor('../../assets/shape_predictor_68_face_landmarks.dat')
+    predictor = dlib.shape_predictor('assets/shape_predictor_68_face_landmarks.dat')
 
     doc = Metashape.Document()
     chunk = doc.addChunk()

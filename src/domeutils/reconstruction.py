@@ -86,15 +86,16 @@ def crop_model(doc, transform):
     return doc
 
 
-def build_textured_mesh(chunk, export_path=None, doc_path=None):
+def build_textured_mesh(doc, export_path=None, doc_path=None):
     """Builds textured mesh for Agisoft Metashape project."""
+    chunk = doc.chunk
     # build mesh and texture
     chunk.buildDepthMaps(downscale=2, filter_mode=Metashape.AggressiveFiltering)
     chunk.buildDenseCloud()
     chunk.buildModel(surface_type=Metashape.Arbitrary, interpolation=Metashape.EnabledInterpolation,
                      source_data=Metashape.DenseCloud)
-                     #source_data=Metashape.DepthMapsData)
-                     #source_data=Metashape.PointCloudData)
+    # source_data=Metashape.DepthMapsData)
+    # source_data=Metashape.PointCloudData)
     chunk.buildUV(mapping_mode=Metashape.GenericMapping)
     chunk.buildTexture(blending_mode=Metashape.MosaicBlending, texture_size=4096)
 
@@ -158,16 +159,7 @@ def export_agisoft_model(chunk, export_path, name):
         cv2.imwrite(str((export_path / name).with_suffix(".jpg")), img)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Run reconstruction pipeline with Agisoft Metashape.")
-    parser.add_argument("root_dir", type=str,
-                        help="Path to directory hosting the images and the model. Example path: /run/user/1000/gvfs/smb-share:server=klee.medien.uni-weimar.de,share=server_extension/theses/style_transfer/data/20221025_christian")
-    parser.add_argument("--logging_on", action="store_true", help="Turn on logging.")
-    parser.set_defaults(logging_on=False)
-    args = parser.parse_args()
-
-    root = Path(args.root_dir)
-
+def run_pipeline(root):
     img_paths = root / "images"
     export_path = root / "model"
 
@@ -183,10 +175,23 @@ if __name__ == "__main__":
         doc.save(str(export_path / "metashape2.psx"))
 
     # create textured mesh
-    doc = build_textured_mesh(chunk=doc.chunk)
+    doc = build_textured_mesh(doc=doc)
     if args.logging_on:
         doc.save(str(export_path / "metashape3.psx"))
         doc.chunk.exportCameras(str(export_path / "cameras.xml"))
 
     # export textured mesh
     export_agisoft_model(chunk=doc.chunk, export_path=export_path, name="model_export")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Run reconstruction pipeline with Agisoft Metashape.")
+    parser.add_argument("root_dir", type=str,
+                        help="Path to directory hosting the images and the model. Example path: /run/user/1000/gvfs/smb-share:server=klee.medien.uni-weimar.de,share=server_extension/theses/style_transfer/data/20221025_christian")
+    parser.add_argument("--logging_on", action="store_true", help="Turn on logging.")
+    parser.set_defaults(logging_on=False)
+    args = parser.parse_args()
+
+    root = Path(args.root_dir)
+
+    run_pipeline(root)

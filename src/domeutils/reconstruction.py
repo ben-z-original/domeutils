@@ -58,7 +58,7 @@ def register_cameras(doc, true_camera_centers_path="assets/true_camera_centers.p
     return doc, transform
 
 
-def crop_model(doc, transform):
+def crop_model(doc, transform, crop_head=False):
     """Removes tie points in order to crop the volume of interest."""
     chunk = doc.chunk
 
@@ -76,13 +76,15 @@ def crop_model(doc, transform):
             pt.valid = False
 
     # crop to head
-    max_z = np.infty  # np.array([chunk.transform.matrix * pt.coord for pt in chunk.point_cloud.points if pt.valid]).max(axis=0)[2]
-    min_z = 0.2  # max_z - 0.5
+    if crop_head:
+        # TODO: for DepthMapsData-based buildMesh the chunk.region needs to be adapted; cropping points not sufficient
+        max_z = np.infty  # np.array([chunk.transform.matrix * pt.coord for pt in chunk.point_cloud.points if pt.valid]).max(axis=0)[2]
+        min_z = 0.2  # max_z - 0.5
 
-    for pt in chunk.point_cloud.points:
-        coord_z = np.array(chunk.transform.matrix * pt.coord)[2]
-        if coord_z < min_z or max_z < coord_z:
-            pt.valid = False
+        for pt in chunk.point_cloud.points:
+            coord_z = np.array(chunk.transform.matrix * pt.coord)[2]
+            if coord_z < min_z or max_z < coord_z:
+                pt.valid = False
 
     chunk.resetRegion()
     return doc
@@ -297,7 +299,7 @@ def export_cameras_agisoft(chunk, out_path):
         f.write(xml)
 
 
-def run_pipeline(root, render_depth=False):
+def run_pipeline(root, crop_head=False, render_depth=False):
     """Run reconstruction pipeline for photo dome."""
     img_paths = root / "images"
     export_path = root / "model"
@@ -309,7 +311,7 @@ def run_pipeline(root, render_depth=False):
 
     # register and crop
     doc, transform = register_cameras(doc=doc)
-    doc = crop_model(doc, transform)
+    doc = crop_model(doc, transform, crop_head)
     if args.logging_on:
         doc.save(str(export_path / "metashape2.psx"))
 
@@ -335,12 +337,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Run reconstruction pipeline with Agisoft Metashape.")
     parser.add_argument("root_dir", type=str,
                         help="Path to directory hosting the images and the model. Example path: /run/user/1000/gvfs/smb-share:server=klee.medien.uni-weimar.de,share=server_extension/theses/style_transfer/data/20221025_christian")
-    parser.add_argument("--render_depth", action="store_true", help="Renders the depth maps.")
     parser.add_argument("--crop_head", action="store_true", help="Crops the sparse point cloud to the upper body part.")
+    parser.add_argument("--render_depth", action="store_true", help="Renders the depth maps.")
     parser.add_argument("--logging_on", action="store_true", help="Turn on logging.")
     parser.set_defaults(logging_on=False)
     args = parser.parse_args()
 
     root = Path(args.root_dir)
 
-    doc = run_pipeline(root, args.render_depth)
+    doc = run_pipeline(root, args.crop_head, args.render_depth)

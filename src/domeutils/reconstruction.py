@@ -9,6 +9,7 @@ from pathlib import Path
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
+
 def sfm_metashape(img_paths, doc_path=None):
     """Structure-from-motion pipeline performed with Agisoft Metashape."""
     doc = Metashape.Document()
@@ -107,6 +108,35 @@ def build_textured_mesh(doc, export_path=None, doc_path=None):
         doc.save(doc_path)
 
     return doc
+
+
+def render_depths(images_path, xml_path, mesh_path, depth_path):
+    """Uses agisoft to render the absolute depth to the mesh."""
+    doc = Metashape.Document()
+    chunk = doc.addChunk()
+
+    images = [str(path) for path in images_path.glob("*")]
+
+    chunk.addPhotos(images)  # photos need to be added
+    chunk.importCameras(str(xml_path))
+    chunk.importModel(str(mesh_path))
+
+    for camera in chunk.cameras:
+        if not camera.enabled or camera.transform is None:
+            continue
+
+        # render depth
+        depth = chunk.model.renderDepth(camera.transform, camera.sensor.calibration)
+        depth = depth.convert(" ", "F32")
+        bytes = depth.tostring()
+
+        # convert to numpy
+        depth_np = np.copy(np.frombuffer(bytes, dtype=np.float32))
+        depth_np = depth_np.reshape(depth.height, depth.width)
+        depth_np *= chunk.transform.scale
+
+        if 0 < np.max(depth_np):
+            np.savez_compressed(str(depth_path / camera.label), np.float16(depth_np))
 
 
 def export_agisoft_model(chunk, export_path, name):
@@ -261,18 +291,19 @@ def export_cameras_agisoft(chunk, out_path):
                      "UNIT['metre',1,AUTHORITY['EPSG','9001']]]"
 
     xml = minidom.parseString(ET.tostring(doc)).toprettyxml(indent="   ")
-    #print(xml)
+    # print(xml)
 
     with open(out_path, 'w') as f:
         f.write(xml)
 
 
-def run_pipeline(root):
+def run_pipeline(root, render_depth=False):
+    """Run reconstruction pipeline for photo dome."""
     img_paths = root / "images"
     export_path = root / "model"
 
     # compute structure-from-motion
-    doc = sfm_metashape(img_paths=root / "images")
+    doc = sfm_metashape(img_paths=img_paths)
     if args.logging_on:
         doc.save(str(export_path / "metashape1.psx"))
 
@@ -292,6 +323,11 @@ def run_pipeline(root):
     export_agisoft_model(chunk=doc.chunk, export_path=export_path, name="model_export")
     export_cameras_agisoft(chunk=doc.chunk, out_path=export_path / "cameras.xml")
 
+    # optionally: render depth
+    if render_depth:
+        render_depths(images_path=img_paths, xml_path=export_path / "cameras.xml",
+                      mesh_path=export_path / "model_export.obj", depth_path=root / "depth")
+
     return doc
 
 
@@ -299,10 +335,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Run reconstruction pipeline with Agisoft Metashape.")
     parser.add_argument("root_dir", type=str,
                         help="Path to directory hosting the images and the model. Example path: /run/user/1000/gvfs/smb-share:server=klee.medien.uni-weimar.de,share=server_extension/theses/style_transfer/data/20221025_christian")
+    parser.add_argument("--render_depth", action="store_true", help="Renders the depth maps.")
+    parser.add_argument("--crop_head", action="store_true", help="Crops the sparse point cloud to the upper body part.")
     parser.add_argument("--logging_on", action="store_true", help="Turn on logging.")
     parser.set_defaults(logging_on=False)
     args = parser.parse_args()
 
     root = Path(args.root_dir)
 
-    doc = run_pipeline(root)
+    doc = run_pipeline(root, args.render_depth)

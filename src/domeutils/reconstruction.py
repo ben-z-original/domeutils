@@ -10,6 +10,35 @@ from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
 
+class LinearTriangulator:
+    """Performs linear triangulation for reconstruction 3D point from 2D correpsondences."""
+    def __init__(self, projection_matrices):
+        self.projection_matrices = projection_matrices
+
+    def __call__(self, landmarks):
+        """Reconstruct 3D point from 2D correspondences according to PCV lecture Assignment 5."""
+        landmarks, projection_matrices = self._filter_landmarks(landmarks)
+
+        # create design matrix
+        A = np.append(
+            landmarks[:, 0][..., None] * projection_matrices[:, 2, :] - projection_matrices[:, 0, :],
+            landmarks[:, 0][..., None] * projection_matrices[:, 2, :] - projection_matrices[:, 0, :], axis=0)
+
+        # solve equation system
+        _, _, V = np.linalg.svd(A)
+        pt3d = V[-1, :]
+        pt3d /= pt3d[-1]
+        return pt3d
+
+    def _filter_landmarks(self, landmarks):
+        """Remove nan and outliers for more robust reconstruction."""
+        not_nan = np.all(~np.isnan(landmarks), axis=1)
+        not_outlier = np.all(abs(landmarks - np.nanmean(landmarks)) < 2 * np.nanstd(landmarks, axis=0), axis=1)
+        landmarks_filt = landmarks[not_nan * not_outlier, ...]
+        projection_matrices_filt = self.projection_matrices[not_nan * not_outlier, ...]
+        return landmarks_filt, projection_matrices_filt
+
+
 def sfm_metashape(img_paths, doc_path=None):
     """Structure-from-motion pipeline performed with Agisoft Metashape."""
     doc = Metashape.Document()

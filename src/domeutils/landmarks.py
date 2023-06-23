@@ -5,12 +5,44 @@ import Metashape
 import numpy as np
 import pandas as pd
 from glob import glob
+import mediapipe as mp
 from pathlib import Path
+
 from pyntcloud import PyntCloud
 from matplotlib import pyplot as plt
 from pkg_resources import resource_string, resource_listdir
 
-def compute_landmarks(root_dir):
+mp_hands = mp.solutions.hands
+
+
+def compute_hand_landmarks(image):
+    """Computes landmarks of a hand."""
+    h, w, _ = image.shape
+
+    with mp_hands.Hands(
+            model_complexity=0,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5) as hands:
+        results = hands.process(image)
+
+        if not results.multi_hand_landmarks:
+            return [np.nan, np.nan]
+
+        x = results.multi_hand_landmarks[0].landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].x * w
+        y = results.multi_hand_landmarks[0].landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].y * h
+
+        if False:
+            plt.imshow(image)
+            plt.plot(landmark[0], landmark[1], "o")
+            plt.show()
+
+        if 0 <= x and 0 <= y and x < w and y < h:
+            return [x, y]
+        else:
+            return [np.nan, np.nan]
+
+
+def compute_facial_landmarks(root_dir):
     """Computes the 2D and 3D facial landmarks."""
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor('assets/shape_predictor_68_face_landmarks.dat')
@@ -99,4 +131,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     root_dir = Path(args.root_dir)
-    compute_landmarks(root_dir)
+    compute_facial_landmarks(root_dir)
